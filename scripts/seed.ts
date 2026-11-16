@@ -1,9 +1,41 @@
-import { execute, getDbPool } from '../src/lib/db';
+import fs from 'fs';
+import path from 'path';
+import bcrypt from 'bcryptjs';
+import { execute, query, queryOne, getPool } from '../src/lib/database';
+import dotenv from 'dotenv';
+
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 async function main() {
-  console.log('[Seed] Seeding default shifts and device profile using native MySQL...');
+  console.log('====================================================');
+  console.log('   AttendX Enterprise Seed Runner (Native MySQL)    ');
+  console.log('====================================================\n');
 
-  // 1. Overnight Shift (Default)
+  // 1. Run SQL seed files from database/seeds/
+  const seedsDir = path.resolve(process.cwd(), 'database', 'seeds');
+  if (fs.existsSync(seedsDir)) {
+    const seedFiles = fs.readdirSync(seedsDir).filter(f => f.endsWith('.sql')).sort();
+    for (const file of seedFiles) {
+      console.log(`  📄 Applying seed file: ${file}...`);
+      const filePath = path.join(seedsDir, file);
+      const sqlContent = fs.readFileSync(filePath, 'utf-8');
+      const cleanSql = sqlContent
+        .replace(/--.*$/gm, '')
+        .replace(/\/\*[\s\S]*?\*\//gm, '');
+      const statements = cleanSql
+        .split(';')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+
+      for (const statement of statements) {
+        await execute(statement);
+      }
+      console.log(`  ✅ Successfully executed: ${file} (${statements.length} statements)`);
+    }
+  }
+
+  // 2. Default Shift Configurations
+  console.log('\n  ⚙️  Seeding shift configurations...');
   await execute(`
     INSERT INTO shift_configurations (
       name, code, is_overnight, shift_start_local, shift_end_local,
@@ -29,7 +61,6 @@ async function main() {
       updated_at = NOW()
   `);
 
-  // 2. Day General Shift
   await execute(`
     INSERT INTO shift_configurations (
       name, code, is_overnight, shift_start_local, shift_end_local,
@@ -56,6 +87,7 @@ async function main() {
   `);
 
   // 3. Register Physical Biometric Machine
+  console.log('  📟 Seeding biometric terminal profile...');
   const serialNo = 'DS-K1T343EFWX20241225V032100ENFV1881098';
   await execute(
     `INSERT INTO biometric_devices (
@@ -75,12 +107,147 @@ async function main() {
     [serialNo]
   );
 
-  console.log('✅ Default shifts & biometric device successfully seeded!');
+  // 4. Role Permissions Mapping
+  console.log('  🔐 Mapping role permissions...');
+  const allRoles = await query<{ id: number; code: string }>('SELECT id, code FROM roles');
+  const allPerms = await query<{ id: number; action_key: string }>('SELECT id, action_key FROM permissions');
+
+  const roleMap = new Map(allRoles.map(r => [r.code, r.id]));
+  const permMap = new Map(allPerms.map(p => [p.action_key, p.id]));
+
+  const roleAssignments: Record<string, string[]> = {
+    SUPER_ADMIN: Array.from(permMap.keys()), // All permissions
+    HR_ADMIN: [
+      'employee.view', 'employee.create', 'employee.update', 'employee.delete',
+      'attendance.view', 'attendance.correct', 'attendance.approve', 'attendance.export',
+      'shift.view', 'shift.create', 'shift.assign',
+      'leave.apply', 'leave.approve', 'leave.manage',
+      'overtime.view', 'overtime.approve',
+      'reports.view', 'reports.export',
+      'device.view'
+    ],
+    BRANCH_ADMIN: [
+      'employee.view', 'employee.update',
+      'attendance.view', 'attendance.correct', 'attendance.approve', 'attendance.export',
+      'shift.view', 'shift.assign',
+      'leave.approve', 'overtime.approve',
+      'reports.view', 'reports.export',
+      'device.view'
+    ],
+    MANAGER: [
+      'employee.view',
+      'attendance.view', 'attendance.approve',
+      'shift.view',
+      'leave.apply', 'leave.approve',
+      'overtime.view', 'overtime.approve',
+      'reports.view'
+    ],
+    TEAM_LEADER: [
+      'employee.view',
+      'attendance.view', 'attendance.correct',
+      'leave.apply',
+      'reports.view'
+    ],
+    EMPLOYEE: [
+      'attendance.view', 'attendance.correct',
+      'leave.apply'
+    ],
+    AUDITOR: [
+      'employee.view',
+      'attendance.view', 'attendance.export',
+      'shift.view',
+      'leave.manage',
+      'overtime.view',
+      'reports.view', 'reports.export',
+      'device.view'
+    ]
+  };
+
+  for (const [roleCode, perms] of Object.entries(roleAssignments)) {
+    const roleId = roleMap.get(roleCode);
+    if (!roleId) continue;
+
+    for (const permKey of perms) {
+      const permId = permMap.get(permKey);
+      if (permId) {
+        await execute(
+          'INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)',
+          [roleId, permId]
+        );
+      }
+    }
+  }
+
+  // 5. Default Enterprise Admin User
+  console.log('  👤 Seeding default Super Admin user account...');
+  const adminEmail = 'admin@attendx.com';
+  const existingAdmin = await queryOne<{ id: number }>('SELECT id FROM users WHERE email = ?', [adminEmail]);
+
+  const saltRounds = 10;
+  const adminPasswordHash = await bcrypt.hash('Admin@123456', saltRounds);
+
+  let adminUserId: number;
+  if (!existingAdmin) {
+    const result = await execute(
+      `INSERT INTO users (email, password_hash, display_name, role, is_active, created_at, updated_at)
+       VALUES (?, ?, 'Super Administrator', 'SUPER_ADMIN', 1, NOW(), NOW())`,
+      [adminEmail, adminPasswordHash]
+    );
+    adminUserId = result.insertId;
+    console.log(`     ✅ Created super admin: ${adminEmail} (Default Password: Admin@123456)`);
+  } else {
+    adminUserId = existingAdmin.id;
+    await execute(
+      'UPDATE users SET password_hash = ?, is_active = 1, updated_at = NOW() WHERE id = ?',
+      [adminPasswordHash, adminUserId]
+    );
+    console.log(`     ℹ️  Super admin exists, updated password: ${adminEmail}`);
+  }
+
+  const superAdminRoleId = roleMap.get('SUPER_ADMIN');
+  if (superAdminRoleId && adminUserId) {
+    await execute(
+      'INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
+      [adminUserId, superAdminRoleId]
+    );
+  }
+
+  // 6. Demo HR Admin Account
+  const hrEmail = 'hr@attendx.com';
+  const existingHr = await queryOne<{ id: number }>('SELECT id FROM users WHERE email = ?', [hrEmail]);
+  const hrPasswordHash = await bcrypt.hash('HrAdmin@123456', saltRounds);
+  let hrUserId: number;
+  if (!existingHr) {
+    const result = await execute(
+      `INSERT INTO users (email, password_hash, display_name, role, is_active, created_at, updated_at)
+       VALUES (?, ?, 'HR Administrator', 'HR_ADMIN', 1, NOW(), NOW())`,
+      [hrEmail, hrPasswordHash]
+    );
+    hrUserId = result.insertId;
+    console.log(`     ✅ Created HR admin: ${hrEmail} (Default Password: HrAdmin@123456)`);
+  } else {
+    hrUserId = existingHr.id;
+    await execute(
+      'UPDATE users SET password_hash = ?, role = "HR_ADMIN", is_active = 1, updated_at = NOW() WHERE id = ?',
+      [hrPasswordHash, hrUserId]
+    );
+  }
+  const hrRoleId = roleMap.get('HR_ADMIN');
+  if (hrRoleId && hrUserId) {
+    await execute(
+      'INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)',
+      [hrUserId, hrRoleId]
+    );
+  }
+
+  console.log('\n====================================================');
+  console.log('   ✅ All Enterprise Data Successfully Seeded!     ');
+  console.log('====================================================\n');
 }
 
 main()
   .catch((e) => {
-    console.error('Seed error:', e);
+    console.error('❌ Seed execution failed:', e);
     process.exit(1);
   })
-  .finally(() => getDbPool().end());
+  .finally(() => getPool().end());

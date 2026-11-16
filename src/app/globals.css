@@ -72,6 +72,126 @@
 }
 
 /* ==========================================================================
+   Dark Theme Design Tokens (Enterprise Grade: Linear/Vercel/Stripe)
+   ========================================================================== */
+.dark {
+  --brand-navy: #F8FAFC;
+  --brand-mauve: #E2B5B3;
+  --brand-prune: #94A3B8;
+  --brand-pink: #F472B6;
+  --brand-blush: #1E293B;
+
+  /* Semantic Dark Application Canvas & Surface */
+  --canvas-bg: #090D12;
+  --canvas-subdued: #0F172A;
+  --surface-white: #111827;
+  --border-subtle: #1E293B;
+  --border-delicate: #162032;
+
+  /* High-contrast accessible typography */
+  --text-primary: #F1F5F9;
+  --text-secondary: #94A3B8;
+  --text-muted: #64748B;
+  --text-faint: #475569;
+
+  /* Tailwind CSS Bridge Tokens for Dark */
+  --background: 222 47% 4%;
+  --foreground: 210 40% 98%;
+
+  --card: 222 47% 7%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 222 47% 7%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 210 40% 98%;
+  --primary-foreground: 222 47% 11%;
+
+  --secondary: 217 33% 17%;
+  --secondary-foreground: 210 40% 98%;
+
+  --muted: 217 33% 15%;
+  --muted-foreground: 215 20% 65%;
+
+  --accent: 217 33% 17%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 217 33% 18%;
+  --input: 217 33% 18%;
+  --ring: 212 96% 78%;
+}
+
+.dark .card-surface {
+  background-color: #0F172A;
+  border-color: #1E293B;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4);
+}
+
+.dark .glass-nav {
+  background-color: rgba(15, 23, 42, 0.85);
+  border-bottom: 1px solid rgba(30, 41, 59, 0.8);
+}
+
+.dark .glass-panel {
+  background-color: rgba(15, 23, 42, 0.9);
+  border-color: #1E293B;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+}
+
+.dark .blush-panel {
+  background-color: rgba(30, 41, 59, 0.5);
+  border-color: #334155;
+}
+
+.dark .table-surface {
+  background-color: #0F172A;
+  border-color: #1E293B;
+}
+
+.dark .table-header {
+  background-color: #1E293B;
+  color: #94A3B8;
+  border-bottom-color: #334155;
+}
+
+.dark .table-row-hover:hover {
+  background-color: #1E293B/70;
+}
+
+.dark .badge-working {
+  background-color: rgba(6, 95, 70, 0.25);
+  color: #34D399;
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+.dark .badge-break {
+  background-color: rgba(146, 64, 14, 0.25);
+  color: #FBBF24;
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.dark .badge-completed {
+  background-color: rgba(30, 64, 175, 0.25);
+  color: #60A5FA;
+  border-color: rgba(96, 165, 250, 0.3);
+}
+
+.dark .badge-missing {
+  background-color: rgba(153, 27, 27, 0.25);
+  color: #F87171;
+  border-color: rgba(248, 113, 113, 0.3);
+}
+
+.dark .badge-neutral {
+  background-color: #1E293B;
+  color: #94A3B8;
+  border-color: #334155;
+}
+
+/* ==========================================================================
    Base Typography & Layout
    ========================================================================== */
 * {

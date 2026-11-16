@@ -1,5 +1,5 @@
 import { HikvisionISAPIClient } from '../connector/src/hikvision-client';
-import { prisma } from '../src/lib/prisma';
+import { query, queryOne, getPool } from '../src/lib/database';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -33,42 +33,33 @@ async function main() {
   }
 
   console.log('\n=== 2. Checking Database for Employee 040 ===');
-  const emp = await prisma.employee.findFirst({
-    where: {
-      OR: [
-        { biometricNumber: '040' },
-        { biometricNumber: '40' },
-        { employeeCode: 'EMP0040' },
-        { name: { contains: 'Nakshtra' } },
-      ],
-    },
-    include: { shift: true },
-  });
-  console.log('Employee in DB:', emp ? { id: emp.id.toString(), name: emp.name, code: emp.employeeCode, bioNum: emp.biometricNumber, shift: emp.shift?.name } : 'NOT FOUND');
+  const emp = await queryOne<any>(
+    `SELECT e.*, s.name as shift_name 
+     FROM employees e 
+     LEFT JOIN shift_configurations s ON e.shift_id = s.id 
+     WHERE e.biometric_number = '040' OR e.biometric_number = '40' OR e.employee_code = 'EMP0040' OR e.name LIKE '%Nakshtra%' 
+     LIMIT 1`
+  );
+  console.log('Employee in DB:', emp ? { id: emp.id.toString(), name: emp.name, code: emp.employee_code, bioNum: emp.biometric_number, shift: emp.shift_name } : 'NOT FOUND');
 
-  const rawEvents = await prisma.biometricRawEvent.findMany({
-    where: {
-      OR: [
-        { employeeNoString: '040' },
-        { employeeNoString: '40' },
-        { employeeId: emp ? emp.id : undefined },
-      ],
-    },
-    orderBy: { eventTimeUtc: 'asc' },
-  });
+  const rawEvents = await query<any>(
+    `SELECT * FROM biometric_raw_events 
+     WHERE employee_no_string = '040' OR employee_no_string = '40' ${emp ? 'OR employee_id = ' + emp.id : ''} 
+     ORDER BY event_time_utc ASC`
+  );
   console.log(`Raw events in DB for 040: ${rawEvents.length}`);
   for (const r of rawEvents) {
-    console.log(`  - DB Raw ID: ${r.id}, Serial: ${r.serialNo}, DeviceTime: ${r.eventTimeDevice}, EmpId: ${r.employeeId}`);
+    console.log(`  - DB Raw ID: ${r.id}, Serial: ${r.serial_no}, DeviceTime: ${r.event_time_device}, EmpId: ${r.employee_id}`);
   }
 
-  const sessions = await prisma.attendanceSession.findMany({
-    where: { employeeId: emp?.id },
-    orderBy: { businessDate: 'desc' },
-  });
+  const sessions = emp ? await query<any>(
+    'SELECT * FROM attendance_sessions WHERE employee_id = ? ORDER BY business_date DESC',
+    [emp.id]
+  ) : [];
   console.log(`Sessions in DB for Emp ${emp?.id}: ${sessions.length}`);
   for (const s of sessions) {
-    console.log(`  - Session ID: ${s.id}, Date: ${s.businessDate.toISOString().split('T')[0]}, Status: ${s.status}, In: ${s.inCount}, Out: ${s.outCount}, FirstIn: ${s.firstInTime}, LastOut: ${s.lastOutTime}`);
+    console.log(`  - Session ID: ${s.id}, Date: ${s.business_date ? new Date(s.business_date).toISOString().split('T')[0] : 'N/A'}, Status: ${s.status}, In: ${s.in_count}, Out: ${s.out_count}, FirstIn: ${s.first_in_time}, LastOut: ${s.last_out_time}`);
   }
 }
 
-main().finally(() => prisma.$disconnect());
+main().finally(() => getPool().end());

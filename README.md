@@ -1,6 +1,6 @@
 # Real-Time Hikvision Biometric Attendance System (Next.js + ISAPI)
 
-A complete, production-ready biometric attendance management system built with **Next.js App Router**, **TypeScript**, **Tailwind CSS**, and **Prisma ORM**, directly integrated with a **Hikvision DS-K1T343EFWX** face recognition and fingerprint terminal.
+A complete, production-ready biometric attendance management system built with **Next.js App Router**, **TypeScript**, **Tailwind CSS**, and **Native MySQL 8 (mysql2/promise - Zero ORM)**, directly integrated with a **Hikvision DS-K1T343EFWX** face recognition and fingerprint terminal.
 
 ---
 
@@ -27,11 +27,11 @@ A complete, production-ready biometric attendance management system built with *
 │                 ▼                    │     │   - GET  /api/attendance/today │
 │  LOCAL CONNECTOR DAEMON (Node.js)    │     │                 │              │
 │   - Persistent Alert Stream (Live)   │     │                 ▼              │
-│   - Incremental Polling (Fallback)   │     │  MYSQL 8 DATABASE (Prisma)     │
-│   - Deduplication & Checkpointing    │     │   - Raw Events (Immutable)     │
-│                 │                    │     │   - Attendance Sessions        │
-│                 │ Outbound HTTPS     │     │                 │              │
-│                 └────────────────────┼────►│                 ▼              │
+│   - Incremental Polling (Fallback)   │     │  MYSQL 8 DATABASE (Native SQL) │
+│   - Deduplication & Checkpointing    │     │   - Connection Pooling         │
+│                 │                    │     │   - Parameterized Queries      │
+│                 │ Outbound HTTPS     │     │   - Explicit Transactions      │
+│                 └────────────────────┼────►│                 │              │
 │                   x-connector-secret │     │  LIVE ENTERPRISE DASHBOARD     │
 │                                      │     │   - Real-time SSE updates      │
 │                                      │     │   - Dual IST & EST Clocks      │
@@ -74,10 +74,10 @@ cp .env.example .env
 npm install
 ```
 
-### Step 2: Initialize Database (Prisma)
+### Step 2: Initialize Database (Native SQL Migrations)
 ```bash
-npx prisma generate
-npx prisma db push
+npm run db:migrate
+npm run db:seed
 ```
 
 ### Step 3: Run Device Discovery & Diagnostics

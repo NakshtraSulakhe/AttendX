@@ -1,5 +1,6 @@
 import { withTransaction } from '../db';
-import { ShiftInfo, DEFAULT_OVERNIGHT_SHIFT } from './shift-calculator';
+import { ShiftInfo, DEFAULT_OVERNIGHT_SHIFT, timeStringToMinutes } from './shift-calculator';
+import { toZonedTime } from 'date-fns-tz';
 
 export interface PunchRecord {
   id: bigint;
@@ -35,13 +36,16 @@ export interface ReconciledSessionMetrics {
   totalWorkingSeconds: number; // completed work intervals sum
   totalBreakSeconds: number;   // completed break intervals sum
   totalElapsedSeconds: number; // for completed session: lastOut - firstIn
+  lateMinutes: number;
+  earlyExitMinutes: number;
+  overtimeMinutes: number;
   intervals: ReconciledInterval[];
   flaggedNotes?: string;
 }
 
 /**
  * Reconciles raw chronological punches into verified WORK and BREAK intervals
- * Debounces duplicate scans (<60s) and handles state-machine transitions
+ * Debounces duplicate scans (<30s) and handles state-machine transitions
  */
 export function reconcilePunchesToIntervals(
   punches: PunchRecord[],
@@ -62,6 +66,9 @@ export function reconcilePunchesToIntervals(
       totalWorkingSeconds: 0,
       totalBreakSeconds: 0,
       totalElapsedSeconds: 0,
+      lateMinutes: 0,
+      earlyExitMinutes: 0,
+      overtimeMinutes: 0,
       intervals: [],
     };
   }
@@ -69,14 +76,14 @@ export function reconcilePunchesToIntervals(
   // 1. Sort chronologically
   const sorted = [...punches].sort((a, b) => a.timeUtc.getTime() - b.timeUtc.getTime());
 
-  // 2. Debounce duplicate scans within 45 seconds
+  // 2. Debounce duplicate scans within 30 seconds
   const debounced: PunchRecord[] = [];
   for (let i = 0; i < sorted.length; i++) {
     const current = sorted[i];
     if (debounced.length > 0) {
       const prev = debounced[debounced.length - 1];
       const diffSec = (current.timeUtc.getTime() - prev.timeUtc.getTime()) / 1000;
-      if (diffSec < 45) {
+      if (diffSec < 30) {
         // Skip rapid accidental re-scan
         continue;
       }
@@ -188,14 +195,13 @@ export function reconcilePunchesToIntervals(
 
   if (currentType === 'BREAK') {
     // Employee punched OUT. Is this a temporary break or final shift exit?
-    // If it's been more than 4 hours since last OUT, or total time since first IN exceeds maxShiftHours
     if (hoursSinceLastOut >= 4 || hoursSinceFirstIn >= maxShiftHours) {
       currentState = 'COMPLETED';
       completionStatus = 'COMPLETED';
       // Shift is completed at lastOutTime. Total elapsed is lastOutTime - firstInTime
       totalElapsedSeconds = Math.max(0, Math.floor((lastOutMs - firstInMs) / 1000));
 
-      // Remove the trailing unclosed BREAK interval since it is actually the final departure, not an ongoing break
+      // Remove the trailing unclosed BREAK interval since it is actually the final departure
       if (intervals.length > 0 && !intervals[intervals.length - 1].isCompleted) {
         intervals.pop();
       }
@@ -207,17 +213,46 @@ export function reconcilePunchesToIntervals(
     }
   } else {
     // Current state is WORK
-    // If more than maxShiftHours have passed since First IN and employee never clocked OUT:
     if (hoursSinceFirstIn >= maxShiftHours) {
       currentState = 'MISSING_OUT';
       completionStatus = 'PENDING_CLOSURE';
-      // Freeze elapsed at max shift duration or up to cutoff for fairness pending HR review
       totalElapsedSeconds = Math.max(0, Math.floor((nowMs - firstInMs) / 1000));
-      // Mark active interval as incomplete
     } else {
       currentState = 'WORKING';
       completionStatus = 'ACTIVE';
       totalElapsedSeconds = Math.max(0, Math.floor((nowMs - firstInMs) / 1000));
+    }
+  }
+
+  // Calculate late, early exit and overtime metrics
+  let lateMinutes = 0;
+  if (firstInTime) {
+    const inZoned = toZonedTime(firstInTime, shift.timezone || 'Asia/Kolkata');
+    const inMinutes = inZoned.getHours() * 60 + inZoned.getMinutes();
+    const shiftStartMinutes = timeStringToMinutes(shift.startTimeLocal);
+
+    if (shift.isOvernight) {
+      if (inMinutes > shiftStartMinutes + shift.graceLateMinutes && inMinutes < 24 * 60) {
+        lateMinutes = inMinutes - shiftStartMinutes;
+      } else if (inMinutes < timeStringToMinutes(shift.endTimeLocal) + 180 && inMinutes >= 0) {
+        lateMinutes = (24 * 60 - shiftStartMinutes) + inMinutes;
+      }
+    } else {
+      if (inMinutes > shiftStartMinutes + shift.graceLateMinutes) {
+        lateMinutes = inMinutes - shiftStartMinutes;
+      }
+    }
+  }
+
+  const totalWorkMinutes = Math.floor(totalWorkingSeconds / 60);
+  let earlyExitMinutes = 0;
+  let overtimeMinutes = 0;
+
+  if (completionStatus === 'COMPLETED' && lastOutTime) {
+    if (totalWorkMinutes < shift.durationMinutes - shift.graceEarlyExitMinutes) {
+      earlyExitMinutes = shift.durationMinutes - totalWorkMinutes;
+    } else if (totalWorkMinutes >= shift.durationMinutes + shift.overtimeMinMinutes) {
+      overtimeMinutes = totalWorkMinutes - shift.durationMinutes;
     }
   }
 
@@ -234,6 +269,9 @@ export function reconcilePunchesToIntervals(
     totalWorkingSeconds,
     totalBreakSeconds,
     totalElapsedSeconds,
+    lateMinutes,
+    earlyExitMinutes,
+    overtimeMinutes,
     intervals,
   };
 }
@@ -260,11 +298,13 @@ export async function persistReconciledSession(
         employee_id, shift_id, business_date, first_in_time, last_in_time, last_out_time,
         current_interval_start, in_count, out_count, completed_break_count,
         total_working_seconds, total_break_seconds, total_elapsed_seconds, total_work_minutes,
+        late_minutes, early_exit_minutes, overtime_minutes,
         status, completion_status, is_overnight, created_at, updated_at
       ) VALUES (
         ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?,
+        ?, ?, ?,
         ?, ?, ?, NOW(), NOW()
       )
       ON DUPLICATE KEY UPDATE
@@ -280,6 +320,9 @@ export async function persistReconciledSession(
         total_break_seconds = VALUES(total_break_seconds),
         total_elapsed_seconds = VALUES(total_elapsed_seconds),
         total_work_minutes = VALUES(total_work_minutes),
+        late_minutes = VALUES(late_minutes),
+        early_exit_minutes = VALUES(early_exit_minutes),
+        overtime_minutes = VALUES(overtime_minutes),
         status = VALUES(status),
         completion_status = VALUES(completion_status),
         is_overnight = VALUES(is_overnight),
@@ -305,6 +348,9 @@ export async function persistReconciledSession(
       metrics.totalBreakSeconds,
       metrics.totalElapsedSeconds,
       totalWorkMinutes,
+      metrics.lateMinutes,
+      metrics.earlyExitMinutes,
+      metrics.overtimeMinutes,
       metrics.currentState,
       metrics.completionStatus,
       isOvernight,

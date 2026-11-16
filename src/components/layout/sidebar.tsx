@@ -57,6 +57,7 @@ const navSections: NavSection[] = [
       { name: 'Employees', href: '/employees', icon: Users },
       { name: 'Departments', href: '/departments', icon: Building2 },
       { name: 'Shift Management', href: '/shifts', icon: CalendarDays },
+      { name: 'Leave Management', href: '/leave', icon: CalendarCheck },
     ],
   },
   {

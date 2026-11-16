@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Cpu,
   CheckCircle2,
@@ -11,27 +11,54 @@ import {
   HardDrive,
   Key,
   Server,
+  RotateCw,
+  Loader2,
 } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 
+interface DeviceItem {
+  id: string;
+  name: string;
+  model: string;
+  ipAddress: string;
+  port: number;
+  useHttps: boolean;
+  timezone: string;
+  syncIntervalSeconds: number;
+  connectionMethod: string;
+  status: string;
+  serialNumber: string;
+  firmwareVersion: string;
+  lastConnectedAt: string | null;
+  lastSyncAt: string | null;
+}
+
 export default function BiometricDeviceManagementPage() {
+  const [devices, setDevices] = useState<DeviceItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
-  const [deviceInfo] = useState({
-    name: 'Taraj Global Entrance Terminal',
-    model: 'DS-K1T343EFWX',
-    manufacturer: 'Hikvision Digital Technology',
-    firmware: 'V3.21.0 build 241225',
-    webVersion: 'V5.1.27_R0401',
-    ip: '192.168.200.200',
-    port: 80,
-    status: 'ONLINE',
-    macAddress: 'a4:d5:c2:35:78:00',
-    syncProtocol: 'ISAPI Digest Authentication',
-    authType: 'HTTP Digest MD5 (Official ISAPI)',
-    supportedCapabilities: ['Face Recognition', 'Card Reader', 'Access Control', 'AcsEvent Polling'],
-    lastSync: 'Realtime active (10s polling interval)',
-  });
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  const fetchDevices = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/biometric/devices');
+      const data = await res.json();
+      if (data.success) {
+        setDevices(data.devices || []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDevices();
+  }, []);
 
   const runDiagnostic = async () => {
     setTesting(true);
@@ -52,6 +79,29 @@ export default function BiometricDeviceManagementPage() {
     }
   };
 
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      const res = await fetch('/api/attendance/sync-now', {
+        method: 'POST',
+      });
+      const data = await res.json();
+      setSyncMessage(
+        data.success
+          ? `Synced ${data.syncedEvents || 0} events and reconciled ${data.reconciledSessions || 0} sessions successfully!`
+          : `Sync notice: ${data.message || 'Completed'}`
+      );
+      await fetchDevices();
+    } catch (e: any) {
+      setSyncMessage('Sync request failed: ' + e.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const primaryDevice = devices[0];
+
   return (
     <AppShell>
       <div className="space-y-6">
@@ -59,35 +109,54 @@ export default function BiometricDeviceManagementPage() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-1">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="h1 tracking-tight text-[#0E1E27]">
+              <h1 className="h1 tracking-tight text-[#0E1E27] dark:text-white">
                 Biometric Hardware & Devices
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#FAF5F5] text-[#806169] border border-[#E8DFDE]">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#FAF5F5] dark:bg-slate-800 text-[#806169] dark:text-slate-400 border border-[#E8DFDE] dark:border-slate-700">
                 ISAPI ARCHITECTURE
               </span>
             </div>
-            <p className="text-xs text-[#5E4B50] mt-0.5">
+            <p className="text-xs text-[#5E4B50] dark:text-slate-400 mt-0.5">
               Access control terminals, on-premise LAN connections, and protocol sync
             </p>
           </div>
 
-          <button
-            onClick={runDiagnostic}
-            disabled={testing}
-            className="button--primary button--sm"
-          >
-            <Activity className={`w-3.5 h-3.5 text-[#E4C5C3] ${testing ? 'animate-spin' : ''}`} />
-            <span>{testing ? 'Testing Connection...' : 'Run ISAPI Diagnostics'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSyncNow}
+              disabled={syncing}
+              className="button--secondary button--sm px-3.5 py-2 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              <span>{syncing ? 'Syncing...' : 'Sync Now'}</span>
+            </button>
+
+            <button
+              onClick={runDiagnostic}
+              disabled={testing}
+              className="button--primary button--sm bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+            >
+              <Activity className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
+              <span>{testing ? 'Testing...' : 'Run ISAPI Diagnostics'}</span>
+            </button>
+          </div>
         </div>
+
+        {/* Sync message alert */}
+        {syncMessage && (
+          <div className="p-3.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-300 text-xs flex items-center justify-between animate-in fade-in">
+            <span>{syncMessage}</span>
+            <button onClick={() => setSyncMessage(null)} className="text-xs font-bold ml-2">✕</button>
+          </div>
+        )}
 
         {/* Diagnostic Results Banner */}
         {testResult && (
           <div
             className={`p-4 rounded-xl border text-xs animate-in slide-in-from-top-1 ${
               testResult.success
-                ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
-                : 'bg-rose-50 border-rose-300 text-rose-900'
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-300'
+                : 'bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-300'
             }`}
           >
             <div className="flex items-center justify-between font-semibold mb-1">
@@ -96,96 +165,73 @@ export default function BiometricDeviceManagementPage() {
                 ISAPI Hardware Diagnostic: {testResult.success ? 'PASSED (100% Operational)' : 'FAILED'}
               </span>
             </div>
-            <p className="text-[#5E4B50] text-[11px] font-mono">
-              Status Code: {testResult.status || 200} • Terminal Response: OK • Polling Engine Active
+            <p className="text-[11px] font-mono mt-1">
+              Device: {testResult.device?.name || 'DS-K1T343EFWX'} • Firmware: {testResult.device?.firmwareVersion} • IP: 192.168.200.200
             </p>
           </div>
         )}
 
-        {/* Device Specifications Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Card 1: Hardware Specs */}
-          <div className="card-surface p-6 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E8DFDE]">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-lg bg-[#FAF5F5] border border-[#E8DFDE] flex items-center justify-center text-[#0E1E27]">
-                  <Cpu className="w-5 h-5 text-[#806169]" />
-                </div>
-                <div>
-                  <h2 className="text-base font-semibold text-[#0E1E27]">{deviceInfo.name}</h2>
-                  <span className="text-xs text-[#806169] font-mono">{deviceInfo.model}</span>
-                </div>
+        {/* Device Details Card */}
+        <div className="card-surface p-6 rounded-2xl border border-[#E8DFDE] dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+          <div className="flex items-start justify-between border-b border-slate-100 dark:border-slate-800 pb-4 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <Cpu className="w-6 h-6" />
               </div>
+              <div>
+                <h2 className="text-lg font-bold text-[#0E1E27] dark:text-white">
+                  {primaryDevice?.name || 'Taraj Global Entrance Terminal'}
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Model: <span className="font-semibold text-slate-700 dark:text-slate-300">{primaryDevice?.model || 'DS-K1T343EFWX'}</span>
+                </p>
+              </div>
+            </div>
 
-              <span className="badge-working">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                ONLINE
+            <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>ONLINE</span>
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">IP Address</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-sm">
+                {primaryDevice?.ipAddress || '192.168.200.200'}:{primaryDevice?.port || 80}
               </span>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between py-1.5 border-b border-[#FAF5F5]">
-                <span className="text-[#806169]">Manufacturer:</span>
-                <span className="font-semibold text-[#0E1E27]">{deviceInfo.manufacturer}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-[#FAF5F5]">
-                <span className="text-[#806169]">IP Address & Port:</span>
-                <span className="font-mono font-semibold text-[#0E1E27]">{deviceInfo.ip}:{deviceInfo.port}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-[#FAF5F5]">
-                <span className="text-[#806169]">MAC Address:</span>
-                <span className="font-mono text-[#5E4B50]">{deviceInfo.macAddress}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-[#FAF5F5]">
-                <span className="text-[#806169]">Firmware Release:</span>
-                <span className="font-mono text-[#0E1E27]">{deviceInfo.firmware}</span>
-              </div>
-              <div className="flex justify-between py-1.5">
-                <span className="text-[#806169]">Sync Status:</span>
-                <span className="font-mono text-emerald-700 font-semibold">{deviceInfo.lastSync}</span>
-              </div>
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Serial Number</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs truncate block" title={primaryDevice?.serialNumber}>
+                {primaryDevice?.serialNumber || 'DS-K1T343EFWX20241225...'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Firmware Version</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs">
+                {primaryDevice?.firmwareVersion || 'V3.21.0 build 241225'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800">
+              <span className="text-[10px] text-slate-400 block uppercase font-semibold">Sync Method</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
+                ISAPI Stream + 10s Polling
+              </span>
             </div>
           </div>
 
-          {/* Card 2: Security & Protocol Architecture */}
-          <div className="card-surface p-6 space-y-4">
-            <div className="flex items-center space-x-3 pb-3 border-b border-[#E8DFDE]">
-              <div className="w-10 h-10 rounded-lg bg-[#FAF5F5] border border-[#E8DFDE] flex items-center justify-center text-[#0E1E27]">
-                <ShieldCheck className="w-5 h-5 text-[#806169]" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-[#0E1E27]">ISAPI Security Architecture</h2>
-                <span className="text-xs text-[#806169]">Digest MD5 Protocol Specification</span>
-              </div>
+          <div className="mt-5 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <span>Continuous Ingestion Daemon Active • Checkpoint tracking enabled</span>
             </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between py-1.5 border-b border-[#FAF5F5]">
-                <span className="text-[#806169]">Authentication Mode:</span>
-                <span className="font-mono text-[#0E1E27] font-semibold">{deviceInfo.authType}</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-[#FAF5F5]">
-                <span className="text-[#806169]">Event Ingestion Endpoint:</span>
-                <span className="font-mono text-[#5E4B50] text-[11px]">/ISAPI/AccessControl/AcsEvent?format=json</span>
-              </div>
-              <div className="flex justify-between py-1.5 border-b border-[#FAF5F5]">
-                <span className="text-[#806169]">Connection Mode:</span>
-                <span className="text-[#0E1E27] font-semibold">Non-persistent with Keep-Alive fallback</span>
-              </div>
-              <div className="py-2">
-                <span className="text-[#806169] block mb-2">Supported Terminal Modalities:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {deviceInfo.supportedCapabilities.map((cap) => (
-                    <span
-                      key={cap}
-                      className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[#FAF5F5] text-[#0E1E27] border border-[#E8DFDE]"
-                    >
-                      {cap}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <span className="font-mono text-[11px] text-slate-400">
+              Timezone: {primaryDevice?.timezone || 'Asia/Kolkata'}
+            </span>
           </div>
         </div>
       </div>
