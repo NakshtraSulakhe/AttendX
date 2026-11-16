@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processIngestedEvents } from '@/lib/attendance/event-processor';
-import { prisma } from '@/lib/prisma';
+import { execute } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,13 +29,10 @@ export async function POST(req: NextRequest) {
 
     // Update biometric device connection heartbeat
     try {
-      await prisma.biometricDevice.updateMany({
-        data: {
-          lastConnectedAt: new Date(),
-          lastSyncAt: new Date(),
-          status: 'ONLINE',
-        },
-      });
+      await execute(
+        `UPDATE biometric_devices
+         SET last_connected_at = NOW(), last_sync_at = NOW(), status = 'ONLINE'`
+      );
     } catch {
       // Non-critical background status update
     }

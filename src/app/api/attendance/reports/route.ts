@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { query } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,53 +13,79 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
     const format = searchParams.get('format') || 'json';
 
-    const where: any = {};
+    let sql = `
+      SELECT s.*,
+             e.name AS employee_name,
+             e.employee_code,
+             e.biometric_number,
+             d.name AS department_name,
+             sh.name AS shift_name
+      FROM attendance_sessions s
+      JOIN employees e ON s.employee_id = e.id
+      LEFT JOIN departments d ON e.department_id = d.id
+      LEFT JOIN shift_configurations sh ON e.shift_id = sh.id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
 
     if (startDate && endDate) {
-      where.businessDate = {
-        gte: new Date(`${startDate}T00:00:00Z`),
-        lte: new Date(`${endDate}T23:59:59Z`),
-      };
+      sql += ` AND s.business_date >= ? AND s.business_date <= ?`;
+      params.push(startDate, endDate);
     } else if (startDate) {
-      where.businessDate = { gte: new Date(`${startDate}T00:00:00Z`) };
+      sql += ` AND s.business_date >= ?`;
+      params.push(startDate);
     }
 
     if (employeeId) {
-      where.employeeId = BigInt(employeeId);
+      sql += ` AND s.employee_id = ?`;
+      params.push(employeeId);
     }
     if (status) {
-      where.status = status;
+      sql += ` AND s.status = ?`;
+      params.push(status);
     }
     if (departmentId) {
-      where.employee = { departmentId: BigInt(departmentId) };
+      sql += ` AND e.department_id = ?`;
+      params.push(departmentId);
     }
 
-    const sessions = await prisma.attendanceSession.findMany({
-      where,
-      include: {
-        employee: {
-          include: { department: true, shift: true },
-        },
-      },
-      orderBy: [{ businessDate: 'desc' }, { employee: { name: 'asc' } }],
-    });
+    sql += ` ORDER BY s.business_date DESC, e.name ASC`;
 
-    const reportData = sessions.map((s) => ({
-      businessDate: s.businessDate.toISOString().split('T')[0],
-      employeeName: s.employee.name,
-      employeeCode: s.employee.employeeCode,
-      biometricNumber: s.employee.biometricNumber,
-      department: s.employee.department?.name || 'General',
-      shift: s.employee.shift?.name || 'US Overnight',
-      firstInTime: s.firstInTime ? s.firstInTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-',
-      lastOutTime: s.lastOutTime ? s.lastOutTime.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-',
-      totalWorkHours: (s.totalWorkMinutes / 60).toFixed(2),
-      lateMinutes: s.lateMinutes,
-      earlyExitMinutes: s.earlyExitMinutes,
-      overtimeMinutes: s.overtimeMinutes,
-      status: s.status,
-      notes: s.notes || '',
-    }));
+    const sessions = await query<any>(sql, params);
+
+    const reportData = sessions.map((s) => {
+      const bDateStr =
+        s.business_date instanceof Date
+          ? s.business_date.toISOString().split('T')[0]
+          : String(s.business_date).split('T')[0];
+
+      const firstIn = s.first_in_time
+        ? new Date(s.first_in_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })
+        : '-';
+
+      const lastOut = s.last_out_time
+        ? new Date(s.last_out_time).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })
+        : '-';
+
+      const totalWorkMins = s.total_work_minutes || 0;
+
+      return {
+        businessDate: bDateStr,
+        employeeName: s.employee_name,
+        employeeCode: s.employee_code,
+        biometricNumber: s.biometric_number,
+        department: s.department_name || 'General',
+        shift: s.shift_name || 'US Overnight',
+        firstInTime: firstIn,
+        lastOutTime: lastOut,
+        totalWorkHours: (totalWorkMins / 60).toFixed(2),
+        lateMinutes: s.late_minutes || 0,
+        earlyExitMinutes: s.early_exit_minutes || 0,
+        overtimeMinutes: s.overtime_minutes || 0,
+        status: s.status,
+        notes: s.notes || '',
+      };
+    });
 
     if (format === 'csv') {
       const headers = [

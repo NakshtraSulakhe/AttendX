@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { HikvisionISAPIClient } from '@/../connector/src/hikvision-client';
 import { processIngestedEvents } from '@/lib/attendance/event-processor';
-import { prisma } from '@/lib/prisma';
+import { execute } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
 
@@ -149,13 +149,10 @@ async function handleSync(req: NextRequest) {
     }
 
     // Update device heartbeat
-    await prisma.biometricDevice.updateMany({
-      data: {
-        lastConnectedAt: new Date(),
-        lastSyncAt: new Date(),
-        status: 'ONLINE',
-      },
-    });
+    await execute(
+      `UPDATE biometric_devices
+       SET last_connected_at = NOW(), last_sync_at = NOW(), status = 'ONLINE'`
+    );
 
     return NextResponse.json({
       success: true,

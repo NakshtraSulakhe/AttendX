@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { queryOne, execute } from '@/lib/db';
 import { recalculateEmployeeSession } from '@/lib/attendance/event-processor';
-import { DEFAULT_OVERNIGHT_SHIFT } from '@/lib/attendance/shift-calculator';
+import { DEFAULT_OVERNIGHT_SHIFT, ShiftInfo } from '@/lib/attendance/shift-calculator';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,84 +24,116 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const empId = BigInt(employeeId);
-    const bDate = new Date(`${businessDate}T00:00:00Z`);
+    const empIdStr = employeeId.toString();
+    const bDateStr = String(businessDate).split('T')[0];
 
-    const employee = await prisma.employee.findUnique({
-      where: { id: empId },
-      include: { shift: true },
-    });
+    const employee = await queryOne<any>(
+      `SELECT e.*,
+              s.id AS shift_config_id, s.name AS shift_name, s.code AS shift_code,
+              s.is_overnight, s.shift_start_local, s.shift_end_local,
+              s.timezone AS shift_timezone, s.duration_minutes,
+              s.grace_late_minutes, s.grace_early_exit_minutes, s.overtime_min_minutes
+       FROM employees e
+       LEFT JOIN shift_configurations s ON e.shift_id = s.id
+       WHERE e.id = ?
+       LIMIT 1`,
+      [empIdStr]
+    );
 
     if (!employee) {
       return NextResponse.json({ error: 'Employee not found' }, { status: 404 });
     }
 
-    const session = await prisma.attendanceSession.findUnique({
-      where: {
-        employeeId_businessDate: {
-          employeeId: empId,
-          businessDate: bDate,
-        },
-      },
-    });
+    const session = await queryOne<any>(
+      `SELECT * FROM attendance_sessions WHERE employee_id = ? AND business_date = ? LIMIT 1`,
+      [empIdStr, bDateStr]
+    );
 
-    const shift = employee.shift || DEFAULT_OVERNIGHT_SHIFT;
+    let shift: ShiftInfo = DEFAULT_OVERNIGHT_SHIFT;
+    if (employee.shift_config_id) {
+      shift = {
+        id: employee.shift_config_id,
+        name: employee.shift_name || DEFAULT_OVERNIGHT_SHIFT.name,
+        code: employee.shift_code || DEFAULT_OVERNIGHT_SHIFT.code,
+        isOvernight: employee.is_overnight === 1 || employee.is_overnight === true,
+        startTimeLocal: employee.shift_start_local || '17:30:00',
+        endTimeLocal: employee.shift_end_local || '02:30:00',
+        timezone: employee.shift_timezone || 'Asia/Kolkata',
+        durationMinutes: employee.duration_minutes ?? 540,
+        graceLateMinutes: employee.grace_late_minutes ?? 15,
+        graceEarlyExitMinutes: employee.grace_early_exit_minutes ?? 15,
+        overtimeMinMinutes: employee.overtime_min_minutes ?? 30,
+      };
+    }
+
     const correctionTime = punchTimeUtc ? new Date(punchTimeUtc) : new Date();
 
+    const prevIn = session?.first_in_time ? new Date(session.first_in_time) : null;
+    const prevOut = session?.last_out_time ? new Date(session.last_out_time) : null;
+    const newIn = action === 'MANUAL_IN' ? correctionTime : prevIn;
+    const newOut =
+      action === 'RESOLVE_MISSING_OUT' || action === 'MANUAL_OUT'
+        ? correctionTime
+        : prevOut;
+
     // Log the correction audit entry
-    await prisma.attendanceCorrection.create({
-      data: {
-        sessionId: session?.id || BigInt(0),
-        employeeId: empId,
-        businessDate: bDate,
-        previousInTime: session?.firstInTime,
-        newInTime: action === 'MANUAL_IN' ? correctionTime : session?.firstInTime,
-        previousOutTime: session?.lastOutTime,
-        newOutTime: action === 'RESOLVE_MISSING_OUT' || action === 'MANUAL_OUT' ? correctionTime : session?.lastOutTime,
-        reason: `[${action}] ${reason} (by ${requestedBy})`,
-        requestedBy: BigInt(1), // Default admin user
-      },
-    });
+    await execute(
+      `INSERT INTO attendance_corrections (
+        session_id, employee_id, business_date, previous_in_time, new_in_time,
+        previous_out_time, new_out_time, reason, requested_by, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'APPROVED', NOW())`,
+      [
+        session?.id ? session.id.toString() : '0',
+        empIdStr,
+        bDateStr,
+        prevIn,
+        newIn,
+        prevOut,
+        newOut,
+        `[${action}] ${reason} (by ${requestedBy})`,
+      ]
+    );
 
     // If adding a manual punch, insert into BiometricRawEvent as an authorized manual event
     if (action === 'MANUAL_IN' || action === 'MANUAL_OUT' || action === 'RESOLVE_MISSING_OUT') {
       const serialNo = Math.floor(Date.now() % 1000000);
       const isOut = action === 'MANUAL_OUT' || action === 'RESOLVE_MISSING_OUT';
-
-      await prisma.biometricRawEvent.create({
-        data: {
-          serialNo,
-          eventTimeUtc: correctionTime,
-          eventTimeDevice: correctionTime.toISOString().replace('T', ' ').slice(0, 19),
-          employeeNoString: employee.biometricNumber,
-          employeeId: employee.id,
-          verifyMode: 'manual_hr_correction',
-          attendanceStatus: isOut ? 'checkOut' : 'checkIn',
-          ingestionSource: 'manual_correction',
-          isProcessed: true,
-          rawPayload: {
-            reason,
-            action,
-            correctedBy: requestedBy,
-          },
-        },
+      const rawPayload = JSON.stringify({
+        reason,
+        action,
+        correctedBy: requestedBy,
       });
+
+      await execute(
+        `INSERT INTO biometric_raw_events (
+          serial_no, event_time_utc, event_time_device, employee_no_string, employee_id,
+          verify_mode, attendance_status, ingestion_source, is_processed, raw_payload, created_at
+        ) VALUES (?, ?, ?, ?, ?, 'manual_hr_correction', ?, 'manual_correction', 1, ?, NOW())`,
+        [
+          serialNo,
+          correctionTime,
+          correctionTime.toISOString().replace('T', ' ').slice(0, 19),
+          employee.biometric_number,
+          empIdStr,
+          isOut ? 'checkOut' : 'checkIn',
+          rawPayload,
+        ]
+      );
 
       // Recalculate session and intervals
       const updatedSession = await recalculateEmployeeSession(
-        empId,
-        businessDate,
+        empIdStr,
+        bDateStr,
         shift
       );
 
       // Mark session as manually corrected
-      await prisma.attendanceSession.update({
-        where: { id: updatedSession.id },
-        data: {
-          isManualCorrection: true,
-          notes: `Manually corrected: ${reason}`,
-        },
-      });
+      await execute(
+        `UPDATE attendance_sessions
+         SET is_manual_correction = 1, notes = ?
+         WHERE id = ?`,
+        [`Manually corrected: ${reason}`, updatedSession.id.toString()]
+      );
 
       return NextResponse.json({
         success: true,
@@ -109,10 +141,10 @@ export async function POST(req: NextRequest) {
         session: {
           id: updatedSession.id.toString(),
           status: updatedSession.status,
-          totalWorkingSeconds: updatedSession.totalWorkingSeconds,
-          totalBreakSeconds: updatedSession.totalBreakSeconds,
-          inCount: updatedSession.inCount,
-          outCount: updatedSession.outCount,
+          totalWorkingSeconds: updatedSession.total_working_seconds || updatedSession.totalWorkingSeconds,
+          totalBreakSeconds: updatedSession.total_break_seconds || updatedSession.totalBreakSeconds,
+          inCount: updatedSession.in_count || updatedSession.inCount,
+          outCount: updatedSession.out_count || updatedSession.outCount,
         },
       });
     }

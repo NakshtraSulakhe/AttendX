@@ -1,4 +1,4 @@
-import { prisma } from '../prisma';
+import { withTransaction } from '../db';
 import { ShiftInfo, DEFAULT_OVERNIGHT_SHIFT } from './shift-calculator';
 
 export interface PunchRecord {
@@ -239,84 +239,119 @@ export function reconcilePunchesToIntervals(
 }
 
 /**
- * Persists calculated session intervals and metrics to MySQL in a transaction
+ * Persists calculated session intervals and metrics to MySQL in an atomic transaction
  */
 export async function persistReconciledSession(
-  employeeId: bigint,
-  businessDate: Date,
+  employeeId: bigint | string | number,
+  businessDate: Date | string,
   shift: ShiftInfo,
   metrics: ReconciledSessionMetrics
 ) {
-  return await prisma.$transaction(async (tx) => {
-    // 1. Upsert AttendanceSession
-    const session = await tx.attendanceSession.upsert({
-      where: {
-        employeeId_businessDate: {
-          employeeId,
-          businessDate,
-        },
-      },
-      update: {
-        shiftId: shift.id,
-        firstInTime: metrics.firstInTime,
-        lastInTime: metrics.lastInTime,
-        lastOutTime: metrics.lastOutTime,
-        currentIntervalStart: metrics.currentIntervalStart,
-        inCount: metrics.inCount,
-        outCount: metrics.outCount,
-        completedBreakCount: metrics.completedBreakCount,
-        totalWorkingSeconds: metrics.totalWorkingSeconds,
-        totalBreakSeconds: metrics.totalBreakSeconds,
-        totalElapsedSeconds: metrics.totalElapsedSeconds,
-        totalWorkMinutes: Math.floor(metrics.totalWorkingSeconds / 60),
-        status: metrics.currentState as any,
-        completionStatus: metrics.completionStatus,
-        updatedAt: new Date(),
-      },
-      create: {
-        employeeId,
-        shiftId: shift.id,
-        businessDate,
-        firstInTime: metrics.firstInTime,
-        lastInTime: metrics.lastInTime,
-        lastOutTime: metrics.lastOutTime,
-        currentIntervalStart: metrics.currentIntervalStart,
-        inCount: metrics.inCount,
-        outCount: metrics.outCount,
-        completedBreakCount: metrics.completedBreakCount,
-        totalWorkingSeconds: metrics.totalWorkingSeconds,
-        totalBreakSeconds: metrics.totalBreakSeconds,
-        totalElapsedSeconds: metrics.totalElapsedSeconds,
-        totalWorkMinutes: Math.floor(metrics.totalWorkingSeconds / 60),
-        status: metrics.currentState as any,
-        completionStatus: metrics.completionStatus,
-      },
-    });
+  const empIdStr = employeeId.toString();
+  const bDateStr =
+    businessDate instanceof Date
+      ? businessDate.toISOString().split('T')[0]
+      : String(businessDate).split('T')[0];
+
+  return await withTransaction(async (conn) => {
+    // 1. Upsert attendance_sessions
+    const upsertSql = `
+      INSERT INTO attendance_sessions (
+        employee_id, shift_id, business_date, first_in_time, last_in_time, last_out_time,
+        current_interval_start, in_count, out_count, completed_break_count,
+        total_working_seconds, total_break_seconds, total_elapsed_seconds, total_work_minutes,
+        status, completion_status, is_overnight, created_at, updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        ?, ?, ?, NOW(), NOW()
+      )
+      ON DUPLICATE KEY UPDATE
+        shift_id = VALUES(shift_id),
+        first_in_time = VALUES(first_in_time),
+        last_in_time = VALUES(last_in_time),
+        last_out_time = VALUES(last_out_time),
+        current_interval_start = VALUES(current_interval_start),
+        in_count = VALUES(in_count),
+        out_count = VALUES(out_count),
+        completed_break_count = VALUES(completed_break_count),
+        total_working_seconds = VALUES(total_working_seconds),
+        total_break_seconds = VALUES(total_break_seconds),
+        total_elapsed_seconds = VALUES(total_elapsed_seconds),
+        total_work_minutes = VALUES(total_work_minutes),
+        status = VALUES(status),
+        completion_status = VALUES(completion_status),
+        is_overnight = VALUES(is_overnight),
+        updated_at = NOW()
+    `;
+
+    const totalWorkMinutes = Math.floor(metrics.totalWorkingSeconds / 60);
+    const isOvernight = shift.isOvernight ? 1 : 0;
+    const shiftIdVal = shift.id ? shift.id.toString() : null;
+
+    await conn.execute(upsertSql, [
+      empIdStr,
+      shiftIdVal,
+      bDateStr,
+      metrics.firstInTime,
+      metrics.lastInTime,
+      metrics.lastOutTime,
+      metrics.currentIntervalStart,
+      metrics.inCount,
+      metrics.outCount,
+      metrics.completedBreakCount,
+      metrics.totalWorkingSeconds,
+      metrics.totalBreakSeconds,
+      metrics.totalElapsedSeconds,
+      totalWorkMinutes,
+      metrics.currentState,
+      metrics.completionStatus,
+      isOvernight,
+    ]);
+
+    // Fetch the updated session record
+    const [sessionRows]: any = await conn.execute(
+      `SELECT * FROM attendance_sessions WHERE employee_id = ? AND business_date = ? LIMIT 1`,
+      [empIdStr, bDateStr]
+    );
+
+    if (!sessionRows || sessionRows.length === 0) {
+      throw new Error(
+        `Failed to find attendance session after upsert for employee ${empIdStr} on ${bDateStr}`
+      );
+    }
+
+    const session = sessionRows[0];
+    const sessionId = session.id.toString();
 
     // 2. Re-create intervals cleanly for this session
-    await tx.attendanceInterval.deleteMany({
-      where: { sessionId: session.id },
-    });
+    await conn.execute(`DELETE FROM attendance_intervals WHERE session_id = ?`, [sessionId]);
 
     for (const inv of metrics.intervals) {
-      await tx.attendanceInterval.create({
-        data: {
-          sessionId: session.id,
-          employeeId,
-          intervalType: inv.type,
-          startTime: inv.startTime,
-          endTime: inv.endTime,
-          durationSeconds: inv.durationSeconds,
-          startEventId: inv.startEventId,
-          endEventId: inv.endEventId,
-          status: inv.isCompleted ? 'COMPLETED' : 'ACTIVE',
-        },
-      });
+      const invStatus = inv.isCompleted ? 'COMPLETED' : 'ACTIVE';
+      const startEventId = inv.startEventId ? inv.startEventId.toString() : null;
+      const endEventId = inv.endEventId ? inv.endEventId.toString() : null;
+
+      await conn.execute(
+        `INSERT INTO attendance_intervals (
+          session_id, employee_id, interval_type, start_time, end_time,
+          duration_seconds, start_event_id, end_event_id, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+        [
+          sessionId,
+          empIdStr,
+          inv.type,
+          inv.startTime,
+          inv.endTime,
+          inv.durationSeconds,
+          startEventId,
+          endEventId,
+          invStatus,
+        ]
+      );
     }
 
     return session;
-  }, {
-    maxWait: 10000,
-    timeout: 30000,
   });
 }
