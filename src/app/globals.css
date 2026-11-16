@@ -1,0 +1,468 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* ==========================================================================
+     Brand Palette Tokens (Strict Specification)
+     ========================================================================== */
+  --brand-navy: #0E1E27;
+  --brand-mauve: #BD8D8B;
+  --brand-prune: #806169;
+  --brand-pink: #d9a6a3;
+  --brand-blush: #f5cecc;
+
+  /* Semantic Application Canvas & Surface */
+  --canvas-bg: #FAF8F8;
+  --canvas-subdued: #F4EEEE;
+  --surface-white: #FFFFFF;
+  --border-subtle: #E8DFDE;
+  --border-delicate: #F0E8E7;
+
+  /* Typography Colors */
+  --text-primary: #0e1e27;
+  /* High-contrast Navy */
+  --text-secondary: #60434b;
+  /* Accessible Deep Prune */
+  --text-muted: #885f6a;
+  /* Brand Prune */
+  --text-faint: #a7888f;
+  /* Supporting text */
+
+  /* Tailwind CSS Bridge Tokens */
+  --background: 4 20% 98%;
+  /* #FAF8F8 */
+  --foreground: 202 47% 10%;
+  /* #0E1E27 */
+
+  --card: 0 0% 100%;
+  /* #FFFFFF */
+  --card-foreground: 202 47% 10%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 202 47% 10%;
+
+  --primary: 202 47% 10%;
+  /* Navy #0E1E27 */
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 4 52% 92%;
+  /* Blush #F5E1E0 */
+  --secondary-foreground: 202 47% 10%;
+
+  --muted: 4 20% 95%;
+  /* Light Warm Neutral */
+  --muted-foreground: 345 14% 44%;
+  /* Prune #806169 */
+
+  --accent: 2 28% 65%;
+  /* Mauve #BD8D8B */
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 4 15% 89%;
+  /* #E8DFDE */
+  --input: 4 15% 89%;
+  --ring: 2 28% 65%;
+  /* Mauve Ring */
+
+  --radius: 0.75rem;
+}
+
+/* ==========================================================================
+   Base Typography & Layout
+   ========================================================================== */
+* {
+  border-color: var(--border-subtle);
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--canvas-bg);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Consistent Heading Scale */
+h1,
+.h1 {
+  font-size: 1.875rem;
+  /* 30px */
+  line-height: 2.25rem;
+  font-weight: 600;
+  color: var(--brand-navy);
+  letter-spacing: -0.02em;
+}
+
+h2,
+.h2 {
+  font-size: 1.4375rem;
+  /* 23px */
+  line-height: 1.875rem;
+  font-weight: 600;
+  color: var(--brand-navy);
+  letter-spacing: -0.015em;
+}
+
+h3,
+.h3 {
+  font-size: 1.1875rem;
+  /* 19px */
+  line-height: 1.625rem;
+  font-weight: 600;
+  color: var(--brand-navy);
+}
+
+h4,
+.h4 {
+  font-size: 1rem;
+  /* 16px */
+  line-height: 1.375rem;
+  font-weight: 600;
+  color: var(--brand-navy);
+}
+
+/* Monospace & Tabular Formats */
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   Surfaces & Distinctive Glassmorphism
+   ========================================================================== */
+/* Primary solid content card */
+.card-surface {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.875rem;
+  box-shadow: 0 1px 3px 0 rgba(14, 30, 39, 0.04), 0 1px 2px -1px rgba(14, 30, 39, 0.02);
+}
+
+/* Restrained, elegant glassmorphism for sticky navigation and selected floating elements */
+.glass-nav {
+  background-color: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(228, 197, 195, 0.45);
+}
+
+.glass-panel {
+  background-color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 4px 12px -2px rgba(14, 30, 39, 0.05);
+}
+
+/* Lightly tinted brand accent containers */
+.blush-panel {
+  background-color: rgba(245, 225, 224, 0.4);
+  border: 1px solid rgba(228, 197, 195, 0.6);
+  border-radius: 0.75rem;
+}
+
+/* ==========================================================================
+   Reusable Button Hierarchy (Specification Compliant)
+   ========================================================================== */
+.button--primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--brand-navy);
+  color: #FFFFFF;
+  font-size: 0.8125rem;
+  /* 13px */
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease-in-out;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.button--primary:hover {
+  background-color: #1A303D;
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 6px rgba(14, 30, 39, 0.15);
+}
+
+.button--primary:focus-visible {
+  outline: 2px solid var(--brand-mauve);
+  outline-offset: 2px;
+}
+
+.button--primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.button--secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: #FFFFFF;
+  color: var(--brand-navy);
+  border: 1px solid #D9C8C7;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(14, 30, 39, 0.03);
+}
+
+.button--secondary:hover {
+  background-color: rgba(245, 225, 224, 0.4);
+  border-color: var(--brand-mauve);
+}
+
+.button--secondary:focus-visible {
+  outline: 2px solid var(--brand-mauve);
+  outline-offset: 2px;
+}
+
+.button--tertiary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  background-color: transparent;
+  color: var(--brand-prune);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+}
+
+.button--tertiary:hover {
+  background-color: rgba(245, 225, 224, 0.5);
+  color: var(--brand-navy);
+}
+
+.button--accent {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: var(--brand-mauve);
+  color: #FFFFFF;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.button--accent:hover {
+  background-color: #AB7A78;
+}
+
+.button--danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background-color: #DC2626;
+  color: #FFFFFF;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.button--danger:hover {
+  background-color: #B91C1C;
+}
+
+.button--sm {
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  border-radius: 0.375rem;
+}
+
+.button--lg {
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
+  border-radius: 0.625rem;
+}
+
+/* ==========================================================================
+   Form Controls & Inputs
+   ========================================================================== */
+.form-input {
+  width: 100%;
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--brand-navy);
+  transition: all 0.15s ease-in-out;
+}
+
+.form-input::placeholder {
+  color: var(--text-faint);
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--brand-mauve);
+  box-shadow: 0 0 0 3px rgba(189, 141, 139, 0.18);
+}
+
+.form-label {
+  display: block;
+  font-size: 0.8125rem;
+  /* 13px */
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 0.375rem;
+}
+
+/* ==========================================================================
+   Semantic Attendance Status Badges
+   ========================================================================== */
+.badge-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  /* 11px */
+  font-weight: 600;
+  background-color: #ECFDF5;
+  color: #065F46;
+  border: 1px solid #A7F3D0;
+}
+
+.badge-break {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background-color: #FFFBEB;
+  color: #92400E;
+  border: 1px solid #FDE68A;
+}
+
+.badge-completed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background-color: #EFF6FF;
+  color: #1E40AF;
+  border: 1px solid #BFDBFE;
+}
+
+.badge-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background-color: #FEF2F2;
+  color: #991B1B;
+  border: 1px solid #FECACA;
+}
+
+.badge-neutral {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  background-color: #F3F4F6;
+  color: #4B5563;
+  border: 1px solid #E5E7EB;
+}
+
+/* ==========================================================================
+   Table Components
+   ========================================================================== */
+.table-surface {
+  background-color: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.875rem;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(14, 30, 39, 0.03);
+}
+
+.table-header {
+  background-color: #FAF5F5;
+  color: var(--brand-prune);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.table-row-hover:hover {
+  background-color: #FAF5F5;
+  transition: background-color 0.15s ease-in-out;
+}
+
+/* Sleek native scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D9C8C7;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-mauve);
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
